@@ -47,14 +47,20 @@ public class Robot extends IterativeRobot {
 	Victor elevator;
 	Timer timer;
 
-	Victor rightIntake;
-	Victor leftIntake;
+	Talon rightIntake;
+	Talon leftIntake;
+	
+	Servo cameraY;
+	Servo cameraX;
+	
 	Gyro gyro;
 
 	RobotDrive meci;
 
 	Encoder rightEncoder;
 	Encoder leftEncoder;
+	
+	DoubleSolenoid sol;
 	
 	// Distances in centimeters. forwardDistance increases as the bot travels forward
 	// strafeDistance increases as the bot moves to the right.
@@ -77,8 +83,8 @@ public class Robot extends IterativeRobot {
 		meci = new RobotDrive(fRight, bRight, bLeft, fLeft);
 
 		elevator = new Victor(4);
-		rightIntake = new Victor(5);
-		leftIntake = new Victor(6);
+		rightIntake = new Talon(5);
+		leftIntake = new Talon(6);
 
 		meci = new RobotDrive(fRight, bRight, bLeft, fLeft);
 
@@ -88,6 +94,11 @@ public class Robot extends IterativeRobot {
 		topLimit = new DigitalInput(6);
 		oneToteLimit = new DigitalInput(4);
 		bottomLimit = new DigitalInput(5);
+		
+		cameraX = new Servo(7);
+		cameraY = new Servo(8);
+		
+		sol = new DoubleSolenoid(7,8);
 
 		gyro = new Gyro(0);
 		gyro.setSensitivity(0.007);
@@ -224,13 +235,20 @@ public class Robot extends IterativeRobot {
 
 		SmartDashboard.putString("DB/String 9", Boolean.toString(oneToteLimit.get()));
 
-
+		cameraMovement();
+		
 		if (driverStick.getRawButton(12)) {
 			resetEncoders();
 		}
 		
 		// Handle operator controls
-		elevatorControl (operatorStick.getY());
+		if(operatorStick.getRawButton(1)){
+			elevatorControl (operatorStick.getY());
+			intake(0.0, 0.0);
+		} else {
+			intake(operatorStick.getX(), operatorStick.getY());
+			elevatorControl(0.0);
+		}
 	}
 	
 	public void elevatorControl (double input) {
@@ -247,18 +265,6 @@ public class Robot extends IterativeRobot {
 	public void testPeriodic() {
 	}
 
-	/**
-	public double forwardDistance(int countLeft, int countRight) {
-		final double FORWARD_TO_CM = 0.1;
-		return FORWARD_TO_CM * (countLeft + countRight);
-	}
-
-	public double strafeDistance(int countLeft, int countRight) {
-		final double STRAFE_TO_CM = 0.085;
-		return STRAFE_TO_CM * (countLeft - countRight);
-	}
-	**/
-	
 	public void readEncoders () {
 		int countLeft   = leftEncoder.get();
 		int countRight  = rightEncoder.get();
@@ -288,18 +294,28 @@ public class Robot extends IterativeRobot {
 		}
 	}
 
-	public void intake() {
-		if (operatorStick.getRawButton(4)) {
-			rightIntake.set(1.0);
-			leftIntake.set(1.0);
-		} else if (operatorStick.getRawButton(5)) {
-			rightIntake.set(-1.0);
-			leftIntake.set(-1.0);
+	public void intake(double inputX, double inputY) {
+		rightIntake.set(inputY + inputX);
+		leftIntake.set(inputY - inputX);
+		
+		if (operatorStick.getRawButton(2)){
+			sol.set(DoubleSolenoid.Value.kForward);
+		} else if (operatorStick.getRawButton(3)){
+			sol.set(DoubleSolenoid.Value.kReverse);
 		} else {
-			rightIntake.set(0.0);
-			leftIntake.set(0.0);
+			sol.set(DoubleSolenoid.Value.kOff);
 		}
 	}
 	
-
+	public void cameraMovement() {
+		
+		if(operatorStick.getRawButton(4)){
+			cameraY.set(operatorStick.getY());
+		} else if(operatorStick.getRawButton(5)){
+			cameraX.set(operatorStick.getX());
+		}
+		
+	}
+	
 }
+
