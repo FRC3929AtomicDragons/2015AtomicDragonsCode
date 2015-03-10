@@ -10,21 +10,22 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
  * creating this project, you must also update the manifest file in the resource
  * directory.
  */
+
 public class Robot extends IterativeRobot {
-	
+
 	public enum AutonState {
-		START, FORWARD, LEFT, BACK, RIGHT, STOP
+		START, INTAKE, LOWER, RAISE, ROTATE, FORWARD, PLACE, STOP
 	}
 
 	AutonState currentState = AutonState.START;
-	
+
 	public enum DriveMode {
-		TELEOP_DRIVE, TELEOP_GYRO_DRIVE
+		TELEOP_DRIVE, TELEOP_GYRO_DRIVE, TELEOP_GYRO_STRAFE
 	}
-	
+
 	DriveMode currentDriveMode = DriveMode.TELEOP_DRIVE;
 
-	final double kPgyro = 0.02;
+	final double kPgyro = 0.04;
 	final double kIgyro = 0.0;
 	final double kDgyro = 0.0;
 	final double MAX_ROTATION_INPUT = 0.3;
@@ -33,7 +34,7 @@ public class Robot extends IterativeRobot {
 
 	Joystick driverStick;
 	Joystick operatorStick;
-	
+
 	Talon fRight;
 	Talon fLeft;
 	Talon bLeft;
@@ -49,20 +50,24 @@ public class Robot extends IterativeRobot {
 
 	Talon rightIntake;
 	Talon leftIntake;
-	
+
 	Servo cameraY;
 	Servo cameraX;
-	
+
+	double cameraXIn = 0.5;
+	double cameraYIn = 0.5;
+
 	Gyro gyro;
 
 	RobotDrive meci;
 
 	Encoder rightEncoder;
 	Encoder leftEncoder;
-	
+
 	DoubleSolenoid sol;
-	
-	// Distances in centimeters. forwardDistance increases as the bot travels forward
+
+	// Distances in centimeters. forwardDistance increases as the bot travels
+	// forward
 	// strafeDistance increases as the bot moves to the right.
 	double forwardDistance, strafeDistance;
 
@@ -90,18 +95,21 @@ public class Robot extends IterativeRobot {
 
 		rightEncoder = new Encoder(0, 1, false, Encoder.EncodingType.k4X);
 		leftEncoder = new Encoder(2, 3, true, Encoder.EncodingType.k4X);
-		
+
 		topLimit = new DigitalInput(6);
 		oneToteLimit = new DigitalInput(4);
 		bottomLimit = new DigitalInput(5);
-		
+
 		cameraX = new Servo(7);
 		cameraY = new Servo(8);
-		
-		sol = new DoubleSolenoid(7,8);
 
+		sol = new DoubleSolenoid(2, 3);
+		//gyro count increases going counter-clockwise
 		gyro = new Gyro(0);
 		gyro.setSensitivity(0.007);
+
+		timer = new Timer();
+		timer.reset();
 
 		pidGyro = new PIDTool(kPgyro, kIgyro, kDgyro, 0, -MAX_ROTATION_INPUT, MAX_ROTATION_INPUT);
 	}
@@ -110,7 +118,6 @@ public class Robot extends IterativeRobot {
 		currentState = AutonState.START;
 		gyro.reset();
 		resetEncoders();
-		pidGyro.setSetpoint(0.0);
 	}
 
 	/**
@@ -118,66 +125,95 @@ public class Robot extends IterativeRobot {
 	 */
 	public void autonomousPeriodic() {
 		double angle = gyro.getAngle();
-		double xInput, yInput, zInput;
-		
+		double xInput, yInput, zInput, intakeSpeed, elevatorSpeed;
+
 		readEncoders();
 
 		SmartDashboard.putString("DB/String 5", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 6", Double.toString(strafeDistance));
+		SmartDashboard.putString("DB/String 8", Double.toString(gyro.getAngle()));
 		SmartDashboard.putString("DB/String 0", currentState.name());
+		SmartDashboard.putString("DB/String 4", Boolean.toString(oneToteLimit.get()));
 
 		xInput = 0.0;
 		yInput = 0.0;
-		zInput = pidGyro.computeControl(angle);
+		zInput = 0.0;
+
+		intakeSpeed = 0.0;
+		elevatorSpeed = 0.0;
 
 		switch (currentState) {
 
 		case START:
-			currentState = AutonState.FORWARD;
+			timer.reset();
+			timer.start();
+			closeArms();
+			currentState = AutonState.INTAKE;
+			break;
+
+		case INTAKE:
+			if (timer.get() <= 2.0) {
+				intakeSpeed = 1.0;
+			} else {
+				currentState = AutonState.LOWER;
+				openArms();
+				timer.reset();
+			}
+			break;
+
+		case LOWER:
+			if (bottomLimit.get()) {
+				elevatorSpeed = 1.0;
+			} else {
+				currentState = AutonState.RAISE;
+			}
+			break;
+
+		case RAISE:
+			if (!oneToteLimit.get()) {
+				elevatorSpeed = -1.0;
+			} else {
+				gyro.reset();
+				pidGyro.setSetpoint(90.0);
+				timer.reset();
+				currentState = AutonState.ROTATE;
+			}
+
+		case ROTATE:
+			if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) {
+				zInput = pidGyro.computeControl(angle);
+			} else {
+				resetEncoders();
+				gyro.reset();
+				pidGyro.setSetpoint(0.0);
+				currentState = AutonState.FORWARD;
+			}
 			break;
 
 		case FORWARD:
-			if (forwardDistance <= 300) {
-				yInput = -1.0;
-			} else {
-				currentState = AutonState.RIGHT;
-				resetEncoders();
-			}
-			break;
-
-		case RIGHT:
-			if (strafeDistance <= 100) {
-				xInput = 1.0;
-			} else {
-				currentState = AutonState.BACK;
-				resetEncoders();
-			}
-			break;
-
-		case BACK:
-			if (forwardDistance >= -300) {
-				yInput = 1.0;
-			} else {
-				currentState = AutonState.LEFT;
-				resetEncoders();
-			}
-			break;
-
-		case LEFT:
-			if (strafeDistance >= -100) {
-				xInput = -1.0;
+			if (forwardDistance >= -155) {
+				zInput = pidGyro.computeControl(angle);
+				yInput = -0.5;
 			} else {
 				currentState = AutonState.STOP;
-				resetEncoders();
+			}
+			break;
+
+		case PLACE:
+			if (bottomLimit.get()) {
+				elevatorSpeed = 1.0;
+			} else {
+				currentState = AutonState.STOP;
 			}
 			break;
 
 		case STOP:
 			break;
-
 		}
 
-		meci.mecanumDrive_Cartesian(xInput * 0.2, zInput, yInput * 0.2, 0);
+		intake(0.0, intakeSpeed);
+		elevatorControl(elevatorSpeed);
+		meci.mecanumDrive_Cartesian(xInput * 0.8, zInput, yInput * 0.8, 0);
 	}
 
 	/**
@@ -192,70 +228,116 @@ public class Robot extends IterativeRobot {
 	}
 
 	public void teleopPeriodic() {
-		
+
 		double xInput = 0.0, yInput = 0.0, zInput = 0.0;
-		
+
 		// Y input when pushing joystick forward is negative
-		
+
 		// Handle base control from driverStick
 		switch (currentDriveMode) {
 		case TELEOP_DRIVE:
-			
+
 			xInput = driverStick.getX() * 0.4;
 			yInput = driverStick.getY() * 0.4;
 			zInput = -driverStick.getZ() * 0.4;
-			
+
 			if (driverStick.getRawButton(1)) {
 				currentDriveMode = DriveMode.TELEOP_GYRO_DRIVE;
 				gyro.reset();
+			} else if (driverStick.getRawButton(2)) {
+				currentDriveMode = DriveMode.TELEOP_GYRO_STRAFE;
+				gyro.reset();
 			}
 			break;
+
 		case TELEOP_GYRO_DRIVE:
 			xInput = 0.0;
 			yInput = driverStick.getY() * 0.4;
 			zInput = pidGyro.computeControl(gyro.getAngle());
-			
+
 			if (!driverStick.getRawButton(1))
 				currentDriveMode = DriveMode.TELEOP_DRIVE;
 			break;
+
+		case TELEOP_GYRO_STRAFE:
+			xInput = driverStick.getX() * 0.4;
+			yInput = driverStick.getY() * 0.4;
+			zInput = pidGyro.computeControl(gyro.getAngle());
+
+			if (!driverStick.getRawButton(2)) {
+				currentDriveMode = DriveMode.TELEOP_DRIVE;
+			}
+			break;
 		}
-		
+
 		meci.mecanumDrive_Cartesian(xInput, zInput, yInput, 0);
 
-		
 		readEncoders();
 
-
 		SmartDashboard.putString("DB/String 0", currentState.name());
-		
+
 		SmartDashboard.putString("DB/String 2", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 3", Double.toString(strafeDistance));
 
 		SmartDashboard.putString("DB/String 4", Double.toString(gyro.getAngle()));
 
-		SmartDashboard.putString("DB/String 9", Boolean.toString(oneToteLimit.get()));
+		SmartDashboard.putString("DB/String 9", Boolean.toString(topLimit.get()));
 
-		cameraMovement();
-		
 		if (driverStick.getRawButton(12)) {
 			resetEncoders();
 		}
-		
+
 		// Handle operator controls
-		if(operatorStick.getRawButton(1)){
-			elevatorControl (operatorStick.getY());
+		if (operatorStick.getRawButton(1)) {
+			elevatorControl(-operatorStick.getY());
 			intake(0.0, 0.0);
+		} else if (operatorStick.getRawButton(4)) {
+			cameraControl ();
+			intake(0.0, 0.0);
+			elevatorControl(0.0);
 		} else {
 			intake(operatorStick.getX(), operatorStick.getY());
 			elevatorControl(0.0);
 		}
+
+		// Setting Servo Position
+		cameraX.set(cameraXIn);
+		cameraY.set(cameraYIn);
+
+		// Open and close intake
+		if (operatorStick.getRawButton(2) || operatorStick.getRawButton(1)) {
+			openArms();
+		} else if (operatorStick.getRawButton(3)) {
+			closeArms();
+		} else {
+			sol.set(DoubleSolenoid.Value.kOff);
+		}
 	}
 	
-	public void elevatorControl (double input) {
-		// Check limit switches
-		if ((input < 0) && (!topLimit.get())) input = 0.0;
-		if ((input > 0) && (!bottomLimit.get())) input = 0.0;
+	public void cameraControl () {
+		final double PAN_DELTA = 0.01;
+		final double TILT_DELTA = 0.01;
 		
+		if (operatorStick.getX() >  0.5) cameraXIn += PAN_DELTA;
+		if (operatorStick.getX() < -0.5) cameraXIn -= PAN_DELTA;
+
+		if (operatorStick.getY() >  0.5) cameraYIn += TILT_DELTA;
+		if (operatorStick.getY() < -0.5) cameraYIn -= TILT_DELTA;
+
+		if (cameraXIn > 1.0) cameraXIn = 1.0;
+		if (cameraXIn < 0.0) cameraXIn = 0.0;
+		
+		if (cameraYIn > 1) cameraYIn = 1.0;
+		if (cameraYIn < 0) cameraYIn = 0.0;
+	}
+
+	public void elevatorControl(double input) {
+		// Check limit switches
+		if ((input < 0) && (!topLimit.get()))
+			input = 0.0;
+		if ((input > 0) && (!bottomLimit.get()))
+			input = 0.0;
+
 		elevator.set(input);
 	}
 
@@ -265,12 +347,12 @@ public class Robot extends IterativeRobot {
 	public void testPeriodic() {
 	}
 
-	public void readEncoders () {
-		int countLeft   = leftEncoder.get();
-		int countRight  = rightEncoder.get();
-		
+	public void readEncoders() {
+		int countLeft = leftEncoder.get();
+		int countRight = rightEncoder.get();
+
 		forwardDistance = 0.1 * (countLeft + countRight);
-		strafeDistance  = 0.085 * (countLeft - countRight);
+		strafeDistance = 0.085 * (countLeft - countRight);
 	}
 
 	public void resetEncoders() {
@@ -280,42 +362,16 @@ public class Robot extends IterativeRobot {
 		strafeDistance = 0.0;
 	}
 
-	public void pickUp() {
-		if (bottomLimit.get() == true) {
-			elevator.set(1.0);
-
-			if (bottomLimit.get() == false) {
-				elevator.set(-1.0);
-
-				if (oneToteLimit.get() == false) {
-					elevator.set(0.0);
-				}
-			}
-		}
-	}
-
 	public void intake(double inputX, double inputY) {
 		rightIntake.set(inputY + inputX);
-		leftIntake.set(inputY - inputX);
-		
-		if (operatorStick.getRawButton(2)){
-			sol.set(DoubleSolenoid.Value.kForward);
-		} else if (operatorStick.getRawButton(3)){
-			sol.set(DoubleSolenoid.Value.kReverse);
-		} else {
-			sol.set(DoubleSolenoid.Value.kOff);
-		}
+		leftIntake.set(-inputY + inputX);
 	}
-	
-	public void cameraMovement() {
-		
-		if(operatorStick.getRawButton(4)){
-			cameraY.set(operatorStick.getY());
-		} else if(operatorStick.getRawButton(5)){
-			cameraX.set(operatorStick.getX());
-		}
-		
-	}
-	
-}
 
+	public void openArms() {
+		sol.set(DoubleSolenoid.Value.kReverse);
+	}
+
+	public void closeArms() {
+		sol.set(DoubleSolenoid.Value.kForward);
+	}
+}
