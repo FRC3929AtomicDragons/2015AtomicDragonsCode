@@ -25,13 +25,26 @@ public class Robot extends IterativeRobot {
 
 	DriveMode currentDriveMode = DriveMode.TELEOP_DRIVE;
 
+	public enum PickUpState {
+		OPEN, DOWN, PICKUP, CLOSE
+	}
+	
+	public PickUpState stateofAction = PickUpState.OPEN;
 	final double kPgyro = 0.04;
 	final double kIgyro = 0.0;
 	final double kDgyro = 0.0;
 	final double MAX_ROTATION_INPUT = 0.3;
+	
+
 
 	PIDTool pidGyro;
-
+	
+	// Standard Gyro
+	// Gyro gyro;
+	
+	// Sparkfun 6dof gyro
+	GyroITG3200 gyro;
+	
 	Joystick driverStick;
 	Joystick operatorStick;
 
@@ -47,7 +60,7 @@ public class Robot extends IterativeRobot {
 	DigitalInput bottomLimit;
 	Victor elevator;
 	Timer timer;
-
+	
 	Talon rightIntake;
 	Talon leftIntake;
 
@@ -57,7 +70,6 @@ public class Robot extends IterativeRobot {
 	double cameraXIn = 0.5;
 	double cameraYIn = 0.5;
 
-	Gyro gyro;
 
 	RobotDrive meci;
 
@@ -77,7 +89,8 @@ public class Robot extends IterativeRobot {
 	 */
 	public void robotInit() {
 		// sets the channel for different components of the robot
-
+		
+		
 		driverStick = new Joystick(0);
 		operatorStick = new Joystick(1);
 
@@ -105,10 +118,14 @@ public class Robot extends IterativeRobot {
 
 		sol = new DoubleSolenoid(2, 3);
 		//gyro count increases going counter-clockwise
-		gyro = new Gyro(0);
-		gyro.setSensitivity(0.007);
+		// gyro = new Gyro(0);
+		// gyro.setSensitivity(0.007);
 
-		timer = new Timer();
+		gyro = new GyroITG3200(I2C.Port.kOnboard);
+		gyro.initialize();
+		gyro.calibrate();
+		
+		timer = new Timer();		
 		timer.reset();
 
 		pidGyro = new PIDTool(kPgyro, kIgyro, kDgyro, 0, -MAX_ROTATION_INPUT, MAX_ROTATION_INPUT);
@@ -178,7 +195,6 @@ public class Robot extends IterativeRobot {
 				timer.reset();
 				currentState = AutonState.ROTATE;
 			}
-
 		case ROTATE:
 			if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) {
 				zInput = pidGyro.computeControl(angle);
@@ -275,7 +291,7 @@ public class Robot extends IterativeRobot {
 		readEncoders();
 
 		SmartDashboard.putString("DB/String 0", currentState.name());
-
+		SmartDashboard.putString("DB/String 1", Short.toString(gyro.getRotationZ()));
 		SmartDashboard.putString("DB/String 2", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 3", Double.toString(strafeDistance));
 
@@ -374,4 +390,6 @@ public class Robot extends IterativeRobot {
 	public void closeArms() {
 		sol.set(DoubleSolenoid.Value.kForward);
 	}
+
 }
+
