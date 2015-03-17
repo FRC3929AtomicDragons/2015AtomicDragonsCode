@@ -1,7 +1,9 @@
 package org.usfirst.frc.team3929.robot;
 
+import com.kauailabs.navx_mxp.AHRS;
 import edu.wpi.first.wpilibj.*;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+
 
 /**
  * The VM is configured to automatically run this class, and to call the
@@ -28,22 +30,17 @@ public class Robot extends IterativeRobot {
 	public enum PickUpState {
 		OPEN, DOWN, PICKUP, CLOSE
 	}
-	
+
 	public PickUpState stateofAction = PickUpState.OPEN;
 	final double kPgyro = 0.04;
 	final double kIgyro = 0.0;
 	final double kDgyro = 0.0;
-	final double MAX_ROTATION_INPUT = 0.3;
-	
-	
+	final double MAX_ROTATION_INPUT = 0.5;
+
+	double DRIVE_POWER_LEVEL = 0.6;
+
 	PIDTool pidGyro;
-	
-	// Standard Gyro
-	// Gyro gyro;
-	
-	// Sparkfun 6dof gyro
-	GyroITG3200 gyro;
-	
+
 	Joystick driverStick;
 	Joystick operatorStick;
 
@@ -59,7 +56,7 @@ public class Robot extends IterativeRobot {
 	DigitalInput bottomLimit;
 	Victor elevator;
 	Timer timer;
-	
+
 	Talon rightIntake;
 	Talon leftIntake;
 
@@ -69,13 +66,17 @@ public class Robot extends IterativeRobot {
 	double cameraXIn = 0.5;
 	double cameraYIn = 0.5;
 
-
 	RobotDrive meci;
 
 	Encoder rightEncoder;
 	Encoder leftEncoder;
 
 	DoubleSolenoid sol;
+
+	SerialPort serial_port;
+	// IMU imu; // This class can be used w/nav6 and navX MXP.
+	// IMUAdvanced imu; // This class can be used w/nav6 and navX MXP.
+	AHRS imu; // This class can only be used w/the navX MXP.
 
 	// Distances in centimeters. forwardDistance increases as the bot travels
 	// forward
@@ -88,8 +89,7 @@ public class Robot extends IterativeRobot {
 	 */
 	public void robotInit() {
 		// sets the channel for different components of the robot
-		
-		
+
 		driverStick = new Joystick(0);
 		operatorStick = new Joystick(1);
 
@@ -99,6 +99,7 @@ public class Robot extends IterativeRobot {
 		bRight = new Talon(1);
 		meci = new RobotDrive(fRight, bRight, bLeft, fLeft);
 
+		// elevator originally at port 4
 		elevator = new Victor(4);
 		rightIntake = new Talon(5);
 		leftIntake = new Talon(6);
@@ -116,25 +117,57 @@ public class Robot extends IterativeRobot {
 		cameraY = new Servo(8);
 
 		sol = new DoubleSolenoid(2, 3);
-		
+
 		// Old analog gyro initialization
-		//gyro count increases going counter-clockwise
+		// gyro count increases going counter-clockwise
 		// gyro = new Gyro(0);
 		// gyro.setSensitivity(0.007);
 
-		gyro = new GyroITG3200(I2C.Port.kOnboard);
-		gyro.initialize();
-		gyro.calibrate();
-		
-		timer = new Timer();		
+		try {
+
+			// Use SerialPort.Port.kOnboard if connecting nav6 to Roborio Rs-232
+			// port
+			// Use SerialPort.Port.kMXP if connecting navX MXP to the RoboRio
+			// MXP port
+			// Use SerialPort.Port.kUSB if connecting nav6 or navX MXP to the
+			// RoboRio USB port
+
+			serial_port = new SerialPort(57600, SerialPort.Port.kMXP);
+
+			// You can add a second parameter to modify the
+			// update rate (in hz) from. The minimum is 4.
+			// The maximum (and the default) is 100 on a nav6, 60 on a navX MXP.
+			// If you need to minimize CPU load, you can set it to a
+			// lower value, as shown here, depending upon your needs.
+			// The recommended maximum update rate is 50Hz
+
+			// You can also use the IMUAdvanced class for advanced
+			// features on a nav6 or a navX MXP.
+
+			// You can also use the AHRS class for advanced features on
+			// a navX MXP. This offers superior performance to the
+			// IMU Advanced class, and also access to 9-axis headings
+			// and magnetic disturbance detection. This class also offers
+			// access to altitude/barometric pressure data from a
+			// navX MXP Aero.
+
+			byte update_rate_hz = 50;
+			// imu = new IMU(serial_port,update_rate_hz);
+			// imu = new IMUAdvanced(serial_port,update_rate_hz);
+			imu = new AHRS(serial_port, update_rate_hz);
+		} catch (Exception ex) {
+
+		}
+
+		timer = new Timer();
 		timer.reset();
 
 		pidGyro = new PIDTool(kPgyro, kIgyro, kDgyro, 0, -MAX_ROTATION_INPUT, MAX_ROTATION_INPUT);
 	}
 
 	public void autonomousInit() {
-		currentState = AutonState.START;
-		gyro.reset();
+		currentState = AutonState.FORWARD;
+		imu.zeroYaw();
 		resetEncoders();
 	}
 
@@ -142,14 +175,14 @@ public class Robot extends IterativeRobot {
 	 * This function is called periodically during autonomous
 	 */
 	public void autonomousPeriodic() {
-		double angle = gyro.getAngle();
+		double angle = imu.getYaw();
 		double xInput, yInput, zInput, intakeSpeed, elevatorSpeed;
 
 		readEncoders();
 
 		SmartDashboard.putString("DB/String 5", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 6", Double.toString(strafeDistance));
-		SmartDashboard.putString("DB/String 8", Double.toString(gyro.getAngle()));
+		SmartDashboard.putString("DB/String 8", Double.toString(imu.getYaw()));
 		SmartDashboard.putString("DB/String 0", currentState.name());
 		SmartDashboard.putString("DB/String 4", Boolean.toString(oneToteLimit.get()));
 
@@ -191,29 +224,39 @@ public class Robot extends IterativeRobot {
 			if (!oneToteLimit.get()) {
 				elevatorSpeed = -1.0;
 			} else {
-				gyro.reset();
+				resetEncoders();
+				imu.zeroYaw();
 				pidGyro.setSetpoint(90.0);
 				timer.reset();
 				currentState = AutonState.ROTATE;
 			}
+			break;
+
 		case ROTATE:
-			if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) {
-				zInput = pidGyro.computeControl(angle);
+			/*
+			 * if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) { zInput
+			 * = pidGyro.computeControl(angle); } else { resetEncoders();
+			 * imu.zeroYaw(); pidGyro.setSetpoint(0.0); currentState =
+			 * AutonState.FORWARD; }
+			 */
+			if (timer.get() < 2.0) {
+				zInput = -0.4;
 			} else {
 				resetEncoders();
-				gyro.reset();
+				imu.zeroYaw();
 				pidGyro.setSetpoint(0.0);
 				currentState = AutonState.FORWARD;
 			}
 			break;
 
 		case FORWARD:
-			if (forwardDistance >= -155) {
-				zInput = pidGyro.computeControl(angle);
+			if (forwardDistance >= -130) {
+				zInput = 0.0;
 				yInput = -0.5;
 			} else {
 				currentState = AutonState.STOP;
 			}
+
 			break;
 
 		case PLACE:
@@ -238,7 +281,7 @@ public class Robot extends IterativeRobot {
 	 */
 
 	public void teleopInit() {
-		gyro.reset();
+		imu.zeroYaw();
 		resetEncoders();
 		pidGyro.setSetpoint(0.0);
 		currentDriveMode = DriveMode.TELEOP_DRIVE;
@@ -251,36 +294,42 @@ public class Robot extends IterativeRobot {
 		// Y input when pushing joystick forward is negative
 
 		// Handle base control from driverStick
+		if (driverStick.getRawButton(4)) {
+			DRIVE_POWER_LEVEL = 1.0;
+		} else {
+			DRIVE_POWER_LEVEL = 0.4;
+		}
+
 		switch (currentDriveMode) {
 		case TELEOP_DRIVE:
 
-			xInput = driverStick.getX() * 0.4;
-			yInput = driverStick.getY() * 0.4;
-			zInput = -driverStick.getZ() * 0.4;
+			xInput = driverStick.getX() * DRIVE_POWER_LEVEL;
+			yInput = driverStick.getY() * DRIVE_POWER_LEVEL;
+			zInput = -driverStick.getZ() * DRIVE_POWER_LEVEL;
 
 			if (driverStick.getRawButton(1)) {
 				currentDriveMode = DriveMode.TELEOP_GYRO_DRIVE;
-				gyro.reset();
+				imu.zeroYaw();
 			} else if (driverStick.getRawButton(2)) {
 				currentDriveMode = DriveMode.TELEOP_GYRO_STRAFE;
-				gyro.reset();
+				imu.zeroYaw();
 			}
 			break;
 
 		case TELEOP_GYRO_DRIVE:
 			xInput = 0.0;
-			yInput = driverStick.getY() * 0.4;
-			zInput = pidGyro.computeControl(gyro.getAngle());
-
+			yInput = driverStick.getY() * DRIVE_POWER_LEVEL;
+			// zInput = pidGyro.computeControl(imu.getYaw());
+			zInput = 0.0;
 			if (!driverStick.getRawButton(1))
 				currentDriveMode = DriveMode.TELEOP_DRIVE;
 			break;
 
 		case TELEOP_GYRO_STRAFE:
-			xInput = driverStick.getX() * 0.4;
-			yInput = driverStick.getY() * 0.4;
-			zInput = pidGyro.computeControl(gyro.getAngle());
-
+			xInput = driverStick.getX() * DRIVE_POWER_LEVEL;
+			yInput = driverStick.getY() * DRIVE_POWER_LEVEL;
+			// zInput = pidGyro.computeControl(imu.getYaw());
+			zInput = 0.0;
 			if (!driverStick.getRawButton(2)) {
 				currentDriveMode = DriveMode.TELEOP_DRIVE;
 			}
@@ -291,14 +340,15 @@ public class Robot extends IterativeRobot {
 
 		readEncoders();
 
-		SmartDashboard.putString("DB/String 0", currentState.name());
-		SmartDashboard.putString("DB/String 1", Short.toString(gyro.getRotationZ()));
+		SmartDashboard.putString("DB/String 0", currentDriveMode.name());
 		SmartDashboard.putString("DB/String 2", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 3", Double.toString(strafeDistance));
 
-		SmartDashboard.putString("DB/String 4", Double.toString(gyro.getAngle()));
+		SmartDashboard.putString("DB/String 6", Double.toString(imu.getYaw()));
+//		SmartDashboard.putString("DB/String 7", Double.toString(gyro.lastTime));
 
-		SmartDashboard.putString("DB/String 9", Boolean.toString(topLimit.get()));
+/*		SmartDashboard.putString("DB/String 5", Double.toString(gyro.gyroBias));
+		SmartDashboard.putString("DB/String 4", Short.toString(gyro.getRotationZ()));*/
 
 		if (driverStick.getRawButton(12)) {
 			resetEncoders();
@@ -309,7 +359,7 @@ public class Robot extends IterativeRobot {
 			elevatorControl(-operatorStick.getY());
 			intake(0.0, 0.0);
 		} else if (operatorStick.getRawButton(4)) {
-			cameraControl ();
+			cameraControl();
 			intake(0.0, 0.0);
 			elevatorControl(0.0);
 		} else {
@@ -322,30 +372,38 @@ public class Robot extends IterativeRobot {
 		cameraY.set(cameraYIn);
 
 		// Open and close intake
-		if (operatorStick.getRawButton(2) || operatorStick.getRawButton(1)) {
-			openArms();
-		} else if (operatorStick.getRawButton(3)) {
+		if (operatorStick.getRawButton(3)) {
 			closeArms();
+		} else if (operatorStick.getRawButton(2) || operatorStick.getRawButton(1)) {
+			openArms();
 		} else {
 			sol.set(DoubleSolenoid.Value.kOff);
 		}
 	}
-	
-	public void cameraControl () {
+
+	public void cameraControl() {
 		final double PAN_DELTA = 0.01;
 		final double TILT_DELTA = 0.01;
-		
-		if (operatorStick.getX() >  0.5) cameraXIn += PAN_DELTA;
-		if (operatorStick.getX() < -0.5) cameraXIn -= PAN_DELTA;
 
-		if (operatorStick.getY() >  0.5) cameraYIn += TILT_DELTA;
-		if (operatorStick.getY() < -0.5) cameraYIn -= TILT_DELTA;
+		if (operatorStick.getX() > 0.5)
+			cameraXIn += PAN_DELTA;
+		if (operatorStick.getX() < -0.5)
+			cameraXIn -= PAN_DELTA;
 
-		if (cameraXIn > 1.0) cameraXIn = 1.0;
-		if (cameraXIn < 0.0) cameraXIn = 0.0;
-		
-		if (cameraYIn > 1) cameraYIn = 1.0;
-		if (cameraYIn < 0) cameraYIn = 0.0;
+		if (operatorStick.getY() > 0.5)
+			cameraYIn += TILT_DELTA;
+		if (operatorStick.getY() < -0.5)
+			cameraYIn -= TILT_DELTA;
+
+		if (cameraXIn > 1.0)
+			cameraXIn = 1.0;
+		if (cameraXIn < 0.0)
+			cameraXIn = 0.0;
+
+		if (cameraYIn > 1)
+			cameraYIn = 1.0;
+		if (cameraYIn < 0)
+			cameraYIn = 0.0;
 	}
 
 	public void elevatorControl(double input) {
@@ -393,4 +451,3 @@ public class Robot extends IterativeRobot {
 	}
 
 }
-

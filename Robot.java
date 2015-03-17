@@ -175,9 +175,9 @@ public class Robot extends IterativeRobot {
 			if (timer.get() <= 2.0) {
 				intakeSpeed = 1.0;
 			} else {
+				currentState = AutonState.LOWER;
 				openArms();
 				timer.reset();
-				currentState = AutonState.LOWER;
 			}
 			break;
 
