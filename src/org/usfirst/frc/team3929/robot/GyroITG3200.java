@@ -1056,9 +1056,9 @@ public class GyroITG3200 extends SensorBase implements PIDSource, LiveWindowSend
 
 		if ((gyroDeadBandMin < rateZ) && (rateZ < gyroDeadBandMax)) {
 			rateZ = 0.0;
+		} else {
+			rateZ = (rateZ - gyroBias) / 14.375;
 		}
-
-		rateZ = (rateZ - gyroBias) / 14.375;
 
 		ITG3200Angle += 0.5 * (rateZ + lastRate) * (time - lastTime);
 

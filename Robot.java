@@ -35,6 +35,7 @@ public class Robot extends IterativeRobot {
 	final double kDgyro = 0.0;
 	final double MAX_ROTATION_INPUT = 0.3;
 	
+	final double DRIVE_POWER = 0.6;
 	
 	PIDTool pidGyro;
 	
@@ -130,6 +131,7 @@ public class Robot extends IterativeRobot {
 		timer.reset();
 
 		pidGyro = new PIDTool(kPgyro, kIgyro, kDgyro, 0, -MAX_ROTATION_INPUT, MAX_ROTATION_INPUT);
+		
 	}
 
 	public void autonomousInit() {
@@ -173,9 +175,9 @@ public class Robot extends IterativeRobot {
 			if (timer.get() <= 2.0) {
 				intakeSpeed = 1.0;
 			} else {
-				currentState = AutonState.LOWER;
 				openArms();
 				timer.reset();
+				currentState = AutonState.LOWER;
 			}
 			break;
 
@@ -188,14 +190,18 @@ public class Robot extends IterativeRobot {
 			break;
 
 		case RAISE:
-			if (!oneToteLimit.get()) {
+			if (timer.get() <= 2.5) {
 				elevatorSpeed = -1.0;
 			} else {
 				gyro.reset();
-				pidGyro.setSetpoint(90.0);
+				pidGyro.setSetpoint(0.0);
+				resetEncoders();
+				// pidGyro.setSetpoint(90.0);
 				timer.reset();
-				currentState = AutonState.ROTATE;
+				currentState = AutonState.FORWARD;
 			}
+			break;
+			
 		case ROTATE:
 			if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) {
 				zInput = pidGyro.computeControl(angle);
@@ -208,9 +214,9 @@ public class Robot extends IterativeRobot {
 			break;
 
 		case FORWARD:
-			if (forwardDistance >= -155) {
+			if (strafeDistance >= -155) {
 				zInput = pidGyro.computeControl(angle);
-				yInput = -0.5;
+				xInput = 1.0;
 			} else {
 				currentState = AutonState.STOP;
 			}
@@ -253,10 +259,10 @@ public class Robot extends IterativeRobot {
 		// Handle base control from driverStick
 		switch (currentDriveMode) {
 		case TELEOP_DRIVE:
-
-			xInput = driverStick.getX() * 0.4;
-			yInput = driverStick.getY() * 0.4;
-			zInput = -driverStick.getZ() * 0.4;
+			
+			xInput = driverStick.getX() * DRIVE_POWER;
+			yInput = driverStick.getY() * DRIVE_POWER;
+			zInput = -driverStick.getZ() * DRIVE_POWER;
 
 			if (driverStick.getRawButton(1)) {
 				currentDriveMode = DriveMode.TELEOP_GYRO_DRIVE;
@@ -269,7 +275,7 @@ public class Robot extends IterativeRobot {
 
 		case TELEOP_GYRO_DRIVE:
 			xInput = 0.0;
-			yInput = driverStick.getY() * 0.4;
+			yInput = driverStick.getY() * DRIVE_POWER;
 			zInput = pidGyro.computeControl(gyro.getAngle());
 
 			if (!driverStick.getRawButton(1))
@@ -277,8 +283,8 @@ public class Robot extends IterativeRobot {
 			break;
 
 		case TELEOP_GYRO_STRAFE:
-			xInput = driverStick.getX() * 0.4;
-			yInput = driverStick.getY() * 0.4;
+			xInput = driverStick.getX() * DRIVE_POWER;
+			yInput = driverStick.getY() * DRIVE_POWER;
 			zInput = pidGyro.computeControl(gyro.getAngle());
 
 			if (!driverStick.getRawButton(2)) {
@@ -291,7 +297,8 @@ public class Robot extends IterativeRobot {
 
 		readEncoders();
 
-		SmartDashboard.putString("DB/String 0", currentState.name());
+		//SmartDashboard.putString("DB/String 0", currentState.name());
+		SmartDashboard.putString("DB/String 0", "Testing");
 		SmartDashboard.putString("DB/String 1", Short.toString(gyro.getRotationZ()));
 		SmartDashboard.putString("DB/String 2", Double.toString(forwardDistance));
 		SmartDashboard.putString("DB/String 3", Double.toString(strafeDistance));
