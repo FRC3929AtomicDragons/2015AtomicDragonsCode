@@ -35,7 +35,7 @@ public class Robot extends IterativeRobot {
 	final double kPgyro = 0.04;
 	final double kIgyro = 0.0;
 	final double kDgyro = 0.0;
-	final double MAX_ROTATION_INPUT = 0.5;
+	final double MAX_ROTATION_INPUT = 0.3;
 
 	double DRIVE_POWER_LEVEL = 0.6;
 
@@ -166,7 +166,7 @@ public class Robot extends IterativeRobot {
 	}
 
 	public void autonomousInit() {
-		currentState = AutonState.FORWARD;
+		currentState = AutonState.START;
 		imu.zeroYaw();
 		resetEncoders();
 	}
@@ -233,20 +233,24 @@ public class Robot extends IterativeRobot {
 			break;
 
 		case ROTATE:
-			/*
-			 * if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) { zInput
-			 * = pidGyro.computeControl(angle); } else { resetEncoders();
-			 * imu.zeroYaw(); pidGyro.setSetpoint(0.0); currentState =
-			 * AutonState.FORWARD; }
-			 */
-			if (timer.get() < 2.0) {
-				zInput = -0.4;
+			
+			if ((Math.abs(angle - 90) > 2.0) && (timer.get() < 3.0)) {
+				zInput = pidGyro.computeControl(angle);
 			} else {
 				resetEncoders();
 				imu.zeroYaw();
 				pidGyro.setSetpoint(0.0);
 				currentState = AutonState.FORWARD;
 			}
+			
+			/*if (timer.get() < 2.0) {
+				zInput = -0.4;
+			} else {
+				resetEncoders();
+				imu.zeroYaw();
+				pidGyro.setSetpoint(0.0);
+				currentState = AutonState.FORWARD;
+			}*/
 			break;
 
 		case FORWARD:
@@ -319,8 +323,7 @@ public class Robot extends IterativeRobot {
 		case TELEOP_GYRO_DRIVE:
 			xInput = 0.0;
 			yInput = driverStick.getY() * DRIVE_POWER_LEVEL;
-			// zInput = pidGyro.computeControl(imu.getYaw());
-			zInput = 0.0;
+			zInput = pidGyro.computeControl(imu.getYaw());
 			if (!driverStick.getRawButton(1))
 				currentDriveMode = DriveMode.TELEOP_DRIVE;
 			break;
@@ -328,8 +331,7 @@ public class Robot extends IterativeRobot {
 		case TELEOP_GYRO_STRAFE:
 			xInput = driverStick.getX() * DRIVE_POWER_LEVEL;
 			yInput = driverStick.getY() * DRIVE_POWER_LEVEL;
-			// zInput = pidGyro.computeControl(imu.getYaw());
-			zInput = 0.0;
+			zInput = pidGyro.computeControl(imu.getYaw());
 			if (!driverStick.getRawButton(2)) {
 				currentDriveMode = DriveMode.TELEOP_DRIVE;
 			}
